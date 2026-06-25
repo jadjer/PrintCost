@@ -16,13 +16,9 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             price_per_hour: 5.0,
-            materials: [
-                ("pla".to_string(), 50.0),
-                ("abs".to_string(), 50.0),
-                ("petg".to_string(), 50.0)
-            ]
-            .into_iter()
-            .collect(),
+            materials: [("pla".to_string(), 50.0), ("abs".to_string(), 50.0), ("petg".to_string(), 50.0)]
+                .into_iter()
+                .collect(),
         }
     }
 }

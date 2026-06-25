@@ -65,6 +65,10 @@ pub struct TuiApp {
     pub input_new_mat_name: Input,
     pub input_new_mat_price: Input,
     pub active_settings_field: usize,
+
+    pub dropdown_open: bool,
+    pub dropdown_selected: usize,
+    pub settings_dropdown_open: bool
 }
 
 impl TuiApp {
@@ -82,6 +86,9 @@ impl TuiApp {
             input_new_mat_name: Input::from(""),
             input_new_mat_price: Input::from(""),
             active_settings_field: 0,
+            dropdown_open: false,
+            dropdown_selected: 0,
+            settings_dropdown_open: false,
         }
     }
 }
@@ -99,11 +106,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let res = run_app(&mut terminal, &mut app);
 
     disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
     terminal.show_cursor()?;
 
     if let Err(err) = res {
@@ -119,9 +122,65 @@ where
     loop {
         terminal.draw(|f| draw_ui(f, app))?;
 
-        if let Event::Key(key) =
-            event::read().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
-        {
+        if let Event::Key(key) = event::read().map_err(|e| io::Error::new(io::ErrorKind::Other, e))? {
+            if app.dropdown_open {
+                let materials_count = app.config.materials.len();
+                match key.code {
+                    KeyCode::Esc => {
+                        app.dropdown_open = false;
+                    }
+                    KeyCode::Down => {
+                        if materials_count > 0 {
+                            app.dropdown_selected = (app.dropdown_selected + 1) % materials_count;
+                        }
+                    }
+                    KeyCode::Up => {
+                        if materials_count > 0 {
+                            app.dropdown_selected = if app.dropdown_selected == 0 {
+                                materials_count - 1
+                            } else {
+                                app.dropdown_selected - 1
+                            };
+                        }
+                    }
+                    KeyCode::Enter => {
+                        // Подтверждаем выбор из списка
+                        let mut sorted_keys: Vec<&String> = app.config.materials.keys().collect();
+                        sorted_keys.sort();
+                        if let Some(&chosen_material) = sorted_keys.get(app.dropdown_selected) {
+                            app.input_material_name = Input::from(chosen_material.clone());
+                        }
+                        app.dropdown_open = false;
+                    }
+                    _ => {}
+                }
+                continue; // Пропускаем стандартную обработку ввода, пока открыт дропдаун
+            }
+
+            if app.settings_dropdown_open {
+                let materials_count = app.config.materials.len();
+                match key.code {
+                    KeyCode::Esc => app.settings_dropdown_open = false,
+                    KeyCode::Down => if materials_count > 0 { app.dropdown_selected = (app.dropdown_selected + 1) % materials_count; },
+                    KeyCode::Up => if materials_count > 0 { app.dropdown_selected = if app.dropdown_selected == 0 { materials_count - 1 } else { app.dropdown_selected - 1 }; },
+                    KeyCode::Enter => {
+                        let mut sorted_keys: Vec<&String> = app.config.materials.keys().collect();
+                        sorted_keys.sort();
+                        if let Some(&chosen_material) = sorted_keys.get(app.dropdown_selected) {
+                            app.input_new_mat_name = Input::from(chosen_material.clone());
+                            // Автоматически подставляем текущую цену для этого имени, если она есть
+                            if let Some(price) = app.config.materials.get(chosen_material) {
+                                app.input_new_mat_price = Input::from(price.to_string());
+                            }
+                            app.active_settings_field = 2; // Перекидываем фокус сразу на ввод цены
+                        }
+                        app.settings_dropdown_open = false;
+                    }
+                    _ => {}
+                }
+                continue;
+            }
+
             match key.code {
                 KeyCode::Esc => return Ok(()),
                 KeyCode::Tab => {
@@ -129,6 +188,14 @@ where
                         ActiveTab::Calculator => ActiveTab::Settings,
                         ActiveTab::Settings => ActiveTab::Calculator,
                     };
+                }
+                KeyCode::Char(' ') if app.active_tab == ActiveTab::Calculator && app.active_field == ActiveField::MaterialName => {
+                    app.dropdown_open = true;
+                    app.dropdown_selected = 0;
+                }
+                KeyCode::Char(' ') if app.active_tab == ActiveTab::Settings && app.active_settings_field == 1 => {
+                    app.settings_dropdown_open = true;
+                    app.dropdown_selected = 0;
                 }
                 KeyCode::Down => {
                     if app.active_tab == ActiveTab::Calculator {
@@ -141,11 +208,7 @@ where
                     if app.active_tab == ActiveTab::Calculator {
                         app.active_field = app.active_field.prev();
                     } else {
-                        app.active_settings_field = if app.active_settings_field == 0 {
-                            2
-                        } else {
-                            app.active_settings_field - 1
-                        };
+                        app.active_settings_field = if app.active_settings_field == 0 { 2 } else { app.active_settings_field - 1 };
                     }
                 }
                 KeyCode::Enter => {
@@ -157,16 +220,13 @@ where
                             }
                         } else if app.active_settings_field == 2 || app.active_settings_field == 1 {
                             let name = app.input_new_mat_name.value().trim().to_lowercase();
-                            let price = app
-                                .input_new_mat_price
-                                .value()
-                                .parse::<f64>()
-                                .unwrap_or(0.0);
+                            let price = app.input_new_mat_price.value().parse::<f64>().unwrap_or(0.0);
                             if !name.is_empty() && price > 0.0 {
                                 app.config.materials.insert(name, price);
                                 let _ = save_config(&app.config);
                                 app.input_new_mat_name = Input::from("");
                                 app.input_new_mat_price = Input::from("");
+                                app.active_settings_field = 1;
                             }
                         }
                     }
