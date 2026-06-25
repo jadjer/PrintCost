@@ -1,8 +1,11 @@
 [package]
 name = "PrintCost"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
 [dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
+ratatui = "0.30.2"
+crossterm = "0.29.0"
+tui-input = "0.15.3"

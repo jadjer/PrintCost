@@ -1,163 +1,211 @@
-use std::collections::HashMap;
-use std::fs::File;
-use std::io::{self, Write, Read};
-use std::path::Path;
-use serde::{Serialize, Deserialize};
+pub mod config;
+pub mod ui;
 
-const CONFIG_FILE: &str = "print_config.json";
+use config::{Config, load_config, save_config};
+use ui::draw_ui;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct Config {
-    price_per_hour: f64,
-    materials: HashMap<String, f64>,
+use crossterm::{
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    execute,
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+};
+use ratatui::prelude::*;
+use std::io;
+use tui_input::Input;
+use tui_input::backend::crossterm::EventHandler;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActiveField {
+    MaterialName,
+    Weight,
+    Time,
+    Copies,
+    Margin,
 }
 
-fn load_config() -> Result<Config, Box<dyn std::error::Error>> {
-    if !Path::new(CONFIG_FILE).exists() {
-        return Err("File does not exist".into());
+impl ActiveField {
+    pub fn next(self) -> Self {
+        match self {
+            ActiveField::MaterialName => ActiveField::Weight,
+            ActiveField::Weight => ActiveField::Time,
+            ActiveField::Time => ActiveField::Copies,
+            ActiveField::Copies => ActiveField::Margin,
+            ActiveField::Margin => ActiveField::MaterialName,
+        }
     }
-    let mut file = File::open(CONFIG_FILE)?;
-    let mut contents = String::new();
-    file.read_to_string(&mut contents)?;
-    let config: Config = serde_json::from_str(&contents)?;
-    Ok(config)
+    pub fn prev(self) -> Self {
+        match self {
+            ActiveField::MaterialName => ActiveField::Margin,
+            ActiveField::Weight => ActiveField::MaterialName,
+            ActiveField::Time => ActiveField::Weight,
+            ActiveField::Copies => ActiveField::Time,
+            ActiveField::Margin => ActiveField::Copies,
+        }
+    }
 }
 
-fn save_config(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
-    let mut file = File::create(CONFIG_FILE)?;
-    let json = serde_json::to_string_pretty(config)?;
-    file.write_all(json.as_bytes())?;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActiveTab {
+    Calculator,
+    Settings,
+}
+
+pub struct TuiApp {
+    pub config: Config,
+    pub active_tab: ActiveTab,
+    pub active_field: ActiveField,
+
+    pub input_material_name: Input,
+    pub input_weight: Input,
+    pub input_time: Input,
+    pub input_copies: Input,
+    pub input_margin: Input,
+
+    pub input_price_hour: Input,
+    pub input_new_mat_name: Input,
+    pub input_new_mat_price: Input,
+    pub active_settings_field: usize,
+}
+
+impl TuiApp {
+    fn new(config: Config) -> Self {
+        Self {
+            input_price_hour: Input::from(config.price_per_hour.to_string()),
+            config,
+            active_tab: ActiveTab::Calculator,
+            active_field: ActiveField::MaterialName,
+            input_material_name: Input::from(""),
+            input_weight: Input::from(""),
+            input_time: Input::from(""),
+            input_copies: Input::from(""),
+            input_margin: Input::from(""),
+            input_new_mat_name: Input::from(""),
+            input_new_mat_price: Input::from(""),
+            active_settings_field: 0,
+        }
+    }
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+
+    let mut terminal = Terminal::new(CrosstermBackend::new(stdout))?;
+
+    let config = load_config().unwrap_or_default();
+    let mut app = TuiApp::new(config);
+
+    let res = run_app(&mut terminal, &mut app);
+
+    disable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
+    terminal.show_cursor()?;
+
+    if let Err(err) = res {
+        println!("Ошибка работы TUI: {:?}", err);
+    }
     Ok(())
 }
 
-fn read_string(prompt: &str) -> String {
-    let mut input = String::new();
+fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut TuiApp) -> io::Result<()>
+where
+    std::io::Error: From<<B as Backend>::Error>,
+{
     loop {
-        print!("{}", prompt);
-        io::stdout().flush().unwrap();
+        terminal.draw(|f| draw_ui(f, app))?;
 
-        input.clear();
-        io::stdin().read_line(&mut input).expect("Не удалось прочитать строку");
-        let formatted = input.trim().to_lowercase();
-
-        if !formatted.is_empty() {
-            return formatted;
-        } else {
-            println!("Имя пластика не может быть пустым. Попробуйте еще раз.");
-        }
-    }
-}
-
-fn read_f64(prompt: &str) -> f64 {
-    let mut input = String::new();
-    loop {
-        print!("{}", prompt);
-        io::stdout().flush().unwrap();
-
-        input.clear();
-        io::stdin().read_line(&mut input).expect("Не удалось прочитать строку");
-
-        match input.trim().parse::<f64>() {
-            Ok(num) if num >= 0.0 => return num,
-            _ => println!("Ошибка ввода. Пожалуйста, введите положительное число."),
-        }
-    }
-}
-
-fn read_time(prompt: &str) -> f64 {
-    let mut input = String::new();
-    loop {
-        print!("{}", prompt);
-        io::stdout().flush().unwrap();
-
-        input.clear();
-        io::stdin().read_line(&mut input).expect("Не удалось прочитать строку");
-
-        let parts: Vec<&str> = input.trim().split_whitespace().collect();
-
-        match parts.as_slice() {
-            [h_str, m_str] => {
-                let h = h_str.parse::<u32>();
-                let m = m_str.parse::<u32>();
-
-                if let (Ok(hours), Ok(minutes)) = (h, m) {
-                    if minutes < 60 {
-                        return (hours as f64) + (minutes as f64 / 60.0);
+        if let Event::Key(key) =
+            event::read().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
+        {
+            match key.code {
+                KeyCode::Esc => return Ok(()),
+                KeyCode::Tab => {
+                    app.active_tab = match app.active_tab {
+                        ActiveTab::Calculator => ActiveTab::Settings,
+                        ActiveTab::Settings => ActiveTab::Calculator,
+                    };
+                }
+                KeyCode::Down => {
+                    if app.active_tab == ActiveTab::Calculator {
+                        app.active_field = app.active_field.next();
+                    } else {
+                        app.active_settings_field = (app.active_settings_field + 1) % 3;
                     }
                 }
-                println!("Ошибка. Минуты должны быть от 0 до 59. Пример ввода: 2 45");
-            }
-            [h_str] => {
-                if let Ok(hours) = h_str.parse::<f64>() {
-                    if hours >= 0.0 {
-                        return hours;
+                KeyCode::Up => {
+                    if app.active_tab == ActiveTab::Calculator {
+                        app.active_field = app.active_field.prev();
+                    } else {
+                        app.active_settings_field = if app.active_settings_field == 0 {
+                            2
+                        } else {
+                            app.active_settings_field - 1
+                        };
                     }
                 }
-                println!("Ошибка ввода. Введите положительное число.");
-            }
-            _ => {
-                println!("Неверный формат. Введите либо одно число (часы), либо два через пробел (часы минуты).");
+                KeyCode::Enter => {
+                    if app.active_tab == ActiveTab::Settings {
+                        if app.active_settings_field == 0 {
+                            if let Ok(val) = app.input_price_hour.value().parse::<f64>() {
+                                app.config.price_per_hour = val;
+                                let _ = save_config(&app.config);
+                            }
+                        } else if app.active_settings_field == 2 || app.active_settings_field == 1 {
+                            let name = app.input_new_mat_name.value().trim().to_lowercase();
+                            let price = app
+                                .input_new_mat_price
+                                .value()
+                                .parse::<f64>()
+                                .unwrap_or(0.0);
+                            if !name.is_empty() && price > 0.0 {
+                                app.config.materials.insert(name, price);
+                                let _ = save_config(&app.config);
+                                app.input_new_mat_name = Input::from("");
+                                app.input_new_mat_price = Input::from("");
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    if app.active_tab == ActiveTab::Calculator {
+                        match app.active_field {
+                            ActiveField::MaterialName => {
+                                app.input_material_name.handle_event(&Event::Key(key));
+                            }
+                            ActiveField::Weight => {
+                                app.input_weight.handle_event(&Event::Key(key));
+                            }
+                            ActiveField::Time => {
+                                app.input_time.handle_event(&Event::Key(key));
+                            } // ОБЪЕДИНЕНО
+                            ActiveField::Copies => {
+                                app.input_copies.handle_event(&Event::Key(key));
+                            }
+                            ActiveField::Margin => {
+                                app.input_margin.handle_event(&Event::Key(key));
+                            }
+                        }
+                    } else {
+                        match app.active_settings_field {
+                            0 => {
+                                app.input_price_hour.handle_event(&Event::Key(key));
+                            }
+                            1 => {
+                                app.input_new_mat_name.handle_event(&Event::Key(key));
+                            }
+                            2 => {
+                                app.input_new_mat_price.handle_event(&Event::Key(key));
+                            }
+                            _ => {}
+                        }
+                    }
+                }
             }
         }
     }
-}
-
-fn main() {
-    println!("=== Калькулятор стоимости 3D-печати ===");
-
-    let mut config = load_config().unwrap_or_else(|_| {
-        println!("\n[Конфигурация не найдена. Создаем новый профиль]");
-        let price_per_hour = read_f64("Введите стоимость одного часа печати: ");
-        let cfg = Config {
-            price_per_hour,
-            materials: HashMap::new(),
-        };
-        save_config(&cfg).unwrap_or_else(|e| println!("Ошибка сохранения: {}", e));
-        cfg
-    });
-
-    println!("\nСтоимость часа печати: {:.2}", config.price_per_hour);
-
-    println!("\n--- Выбор материала ---");
-    let material_type = read_string("Введите название пластика (например: pla, tpu): ");
-
-    let price_per_kg = match config.materials.get(&material_type) {
-        Some(&price) => {
-            println!("Используется сохраненная цена для {}: {:.2}/кг", material_type, price);
-            price
-        }
-        None => {
-            println!("Материал '{}' еще не сохранен в базе.", material_type);
-            let price = read_f64(&format!("Введите цену за 1 кг для {}: ", material_type));
-
-            config.materials.insert(material_type.clone(), price);
-            if let Err(e) = save_config(&config) {
-                println!("Предупреждение: не удалось обновить файл настроек: {}", e);
-            } else {
-                println!("Материал {} успешно сохранен в настройки.", material_type);
-            }
-            price
-        }
-    };
-
-    println!("\n--- Расчет для конкретной модели ---");
-    let weight_grams = read_f64("Введите вес затраченного пластика (в граммах): ");
-    let hours = read_time("Введите фактическое время печати (Часы Минуты, например '2 45' или '0 30'): ");
-    let copies = read_f64("Введите количество копий: ");
-    let margin_factor = read_f64("Введите коэффициент стоимости (например, 1.5): ");
-    let weight_kg = weight_grams / 1000.0;
-    let material_cost_per_one = weight_kg * price_per_kg;
-    let time_cost_per_one = hours * config.price_per_hour;
-
-    let total_cost_per_one = material_cost_per_one + time_cost_per_one;
-    let total_batch_cost = total_cost_per_one * copies * margin_factor;
-
-    println!("\n=== Результаты расчета ({}) ===", material_type.to_uppercase());
-    println!("Расчетное время:                 {:.2} ч.", hours);
-    println!("-----");
-    println!("Себестоимость 1 копии (пластик): {:.2}", material_cost_per_one);
-    println!("Себестоимость 1 копии (время):   {:.2}", time_cost_per_one);
-    println!("Суммарно:                        {:.2}", total_cost_per_one);
-    println!("-----");
-    println!("Итоговая цена за {} шт. (с коэф. {:.2}): {:.2}", copies, margin_factor, total_batch_cost);
 }
