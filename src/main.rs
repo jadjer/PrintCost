@@ -68,7 +68,7 @@ pub struct TuiApp {
 
     pub dropdown_open: bool,
     pub dropdown_selected: usize,
-    pub settings_dropdown_open: bool
+    pub settings_dropdown_open: bool,
 }
 
 impl TuiApp {
@@ -161,8 +161,20 @@ where
                 let materials_count = app.config.materials.len();
                 match key.code {
                     KeyCode::Esc => app.settings_dropdown_open = false,
-                    KeyCode::Down => if materials_count > 0 { app.dropdown_selected = (app.dropdown_selected + 1) % materials_count; },
-                    KeyCode::Up => if materials_count > 0 { app.dropdown_selected = if app.dropdown_selected == 0 { materials_count - 1 } else { app.dropdown_selected - 1 }; },
+                    KeyCode::Down => {
+                        if materials_count > 0 {
+                            app.dropdown_selected = (app.dropdown_selected + 1) % materials_count;
+                        }
+                    }
+                    KeyCode::Up => {
+                        if materials_count > 0 {
+                            app.dropdown_selected = if app.dropdown_selected == 0 {
+                                materials_count - 1
+                            } else {
+                                app.dropdown_selected - 1
+                            };
+                        }
+                    }
                     KeyCode::Enter => {
                         let mut sorted_keys: Vec<&String> = app.config.materials.keys().collect();
                         sorted_keys.sort();

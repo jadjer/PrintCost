@@ -2,7 +2,7 @@ use crate::{ActiveField, ActiveTab, TuiApp};
 use ratatui::widgets::{Clear, List, ListItem, ListState};
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     widgets::{Block, Borders, Paragraph, Row, Table, Tabs},
 };
@@ -42,7 +42,7 @@ pub fn draw_ui(f: &mut Frame, app: &TuiApp) {
     }
 }
 
-fn draw_calculator_tab(f: &mut Frame, area: ratatui::layout::Rect, app: &TuiApp) {
+fn draw_calculator_tab(f: &mut Frame, area: Rect, app: &TuiApp) {
     let main_layout = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
@@ -162,6 +162,7 @@ fn draw_calculator_tab(f: &mut Frame, area: ratatui::layout::Rect, app: &TuiApp)
     let results_block = Paragraph::new(result_text)
         .block(Block::default().borders(Borders::ALL).title(" Результаты расчета "))
         .style(Style::default().fg(Color::Green));
+
     f.render_widget(results_block, right_chunks[0]);
 
     let help_text = "Навигация: СТРЕЛКИ ВВЕРХ / ВНИЗ\n\
@@ -170,56 +171,13 @@ fn draw_calculator_tab(f: &mut Frame, area: ratatui::layout::Rect, app: &TuiApp)
                       чтобы открыть выпадающий список.\n\n\
                       Изменить цены или добавить типы пластика\n\
                       можно на соседней вкладке настроек.";
+
     let help_block = Paragraph::new(help_text).block(Block::default().borders(Borders::ALL).title(" Справка по управлению "));
+
     f.render_widget(help_block, right_chunks[1]);
 }
 
-fn draw_dropdown(f: &mut Frame, app: &TuiApp, title: &str) {
-    let area = f.area();
-
-    let popup_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(30), Constraint::Percentage(35), Constraint::Percentage(35)])
-        .split(area);
-
-    let target_area = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(30), Constraint::Percentage(40), Constraint::Percentage(30)])
-        .split(popup_layout[1])[1]; // Берем центральный квадрант
-
-    f.render_widget(Clear, target_area);
-
-    // Сортируем ключи базы материалов, чтобы список был стабильным
-    let mut sorted_materials: Vec<(&String, &f64)> = app.config.materials.iter().collect();
-    sorted_materials.sort_by(|a, b| a.0.cmp(b.0));
-
-    let items: Vec<ListItem> = sorted_materials
-        .iter()
-        .enumerate()
-        .map(|(i, (name, price))| {
-            let text = format!(" {} ({:.0} руб/кг)", name.to_uppercase(), price);
-            if i == app.dropdown_selected {
-                ListItem::new(text).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
-            } else {
-                ListItem::new(text).style(Style::default().fg(Color::White))
-            }
-        })
-        .collect();
-
-    let list = List::new(items)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(title)
-                .border_style(Style::default().fg(Color::Yellow)),
-        )
-        .highlight_style(Style::default().bg(Color::DarkGray));
-
-    let mut list_state = ListState::default().with_selected(Some(app.dropdown_selected));
-    f.render_stateful_widget(list, target_area, &mut list_state);
-}
-
-fn draw_settings_tab(f: &mut Frame, area: ratatui::layout::Rect, app: &TuiApp) {
+fn draw_settings_tab(f: &mut Frame, area: Rect, app: &TuiApp) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
@@ -293,4 +251,49 @@ fn draw_settings_tab(f: &mut Frame, area: ratatui::layout::Rect, app: &TuiApp) {
         .block(Block::default().borders(Borders::ALL).title(" 📦 Текущая база пластиков в JSON "));
 
     f.render_widget(table, chunks[1]);
+}
+
+fn draw_dropdown(f: &mut Frame, app: &TuiApp, title: &str) {
+    let area = f.area();
+
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(30), Constraint::Percentage(35), Constraint::Percentage(35)])
+        .split(area);
+
+    let target_area = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(30), Constraint::Percentage(40), Constraint::Percentage(30)])
+        .split(popup_layout[1])[1]; // Берем центральный квадрант
+
+    f.render_widget(Clear, target_area);
+
+    // Сортируем ключи базы материалов, чтобы список был стабильным
+    let mut sorted_materials: Vec<(&String, &f64)> = app.config.materials.iter().collect();
+    sorted_materials.sort_by(|a, b| a.0.cmp(b.0));
+
+    let items: Vec<ListItem> = sorted_materials
+        .iter()
+        .enumerate()
+        .map(|(i, (name, price))| {
+            let text = format!(" {} ({:.0} руб/кг)", name.to_uppercase(), price);
+            if i == app.dropdown_selected {
+                ListItem::new(text).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+            } else {
+                ListItem::new(text).style(Style::default().fg(Color::White))
+            }
+        })
+        .collect();
+
+    let list = List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(title)
+                .border_style(Style::default().fg(Color::Yellow)),
+        )
+        .highlight_style(Style::default().bg(Color::DarkGray));
+
+    let mut list_state = ListState::default().with_selected(Some(app.dropdown_selected));
+    f.render_stateful_widget(list, target_area, &mut list_state);
 }

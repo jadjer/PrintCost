@@ -27,16 +27,22 @@ pub fn load_config() -> Result<Config, Box<dyn std::error::Error>> {
     if !Path::new(CONFIG_FILE).exists() {
         return Err("File does not exist".into());
     }
+    
     let mut file = File::open(CONFIG_FILE)?;
     let mut contents = String::new();
+    
     file.read_to_string(&mut contents)?;
+    
     let config: Config = serde_json::from_str(&contents)?;
+    
     Ok(config)
 }
 
 pub fn save_config(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     let mut file = File::create(CONFIG_FILE)?;
     let json = serde_json::to_string_pretty(config)?;
+    
     file.write_all(json.as_bytes())?;
+    
     Ok(())
 }
